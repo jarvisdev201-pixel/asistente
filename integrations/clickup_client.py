@@ -135,7 +135,9 @@ class ClickUpClient:
 
     def get_current_user(self) -> dict:
         """Return info about the authenticated user."""
-        return self._request("GET", "/user")
+        data = self._request("GET", "/user")
+        # Response is nested: {"user": {...}}
+        return data.get("user", data)
 
     def get_team_users(self, team_id: str) -> list[dict]:
         """Return members of a team/workspace."""
