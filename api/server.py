@@ -3,21 +3,28 @@ FastAPI server factory — creates the Uvicorn server instance.
 """
 
 from fastapi import FastAPI
-from api.routes import router, system_state
+from api.routes import router
 from core.system_state import SystemState
+from core.event_stream import EventStream
 
 
-def create_app(state: SystemState | None = None) -> FastAPI:
+def create_app(
+    state: SystemState | None = None,
+    stream: EventStream | None = None,
+) -> FastAPI:
     app = FastAPI(
         title="Work Assistant Core",
-        version="0.2.0",
+        version="0.3.0",
         description="Local backend for monitoring, simulating and recording user activity.",
     )
 
-    # Inject system state into routes module
+    # Inject dependencies into routes module
+    import api.routes as routes
+
     if state is not None:
-        import api.routes as routes
         routes.system_state = state
+    if stream is not None:
+        routes.event_stream = stream
 
     app.include_router(router)
     return app
