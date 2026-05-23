@@ -86,6 +86,10 @@ def main() -> None:
     ar_routes.git_detector = git_detector
     ar_routes.time_tracker = time_tracker
 
+    # Inject into AI routes
+    import integrations.ai_routes as ai_routes_module
+    ai_routes_module.time_tracker = time_tracker
+
     # Webhook handler available (for ClickUp webhook config if needed)
     # import integrations.clickup_webhooks as cw_routes
     # cw_routes.task_tracker = task_tracker

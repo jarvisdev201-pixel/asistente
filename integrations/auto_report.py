@@ -74,11 +74,29 @@ class AutoReport:
         # 4. Generate text report
         text_report = generate_report(today)
 
-        # 5. Build structured report
+        # 5. Try AI enhancement
+        from services.ai import is_available, enhance_daily_report
+
+        ai_enhanced = None
+        if is_available():
+            try:
+                ai_data = {
+                    "date": today,
+                    "logs": logs,
+                    "git_activity": git_activity,
+                    "time_summary": {},
+                    "raw_text": text_report,
+                }
+                ai_enhanced = enhance_daily_report(ai_data)
+            except Exception:
+                pass
+
+        # 6. Build structured report
         report = {
             "date": today,
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "text": text_report,
+            "ai_enhanced": ai_enhanced,
             "entries": len(logs),
             "git_activity": git_activity,
             "active_tasks": active_tasks,
