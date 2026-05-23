@@ -86,9 +86,9 @@ def main() -> None:
     ar_routes.git_detector = git_detector
     ar_routes.time_tracker = time_tracker
 
-    # Inject into webhook routes
-    import integrations.clickup_webhooks as cw_routes
-    cw_routes.task_tracker = task_tracker
+    # Webhook handler available (for ClickUp webhook config if needed)
+    # import integrations.clickup_webhooks as cw_routes
+    # cw_routes.task_tracker = task_tracker
 
     app = create_app(state=state, stream=stream)
 
@@ -110,7 +110,7 @@ def main() -> None:
 
     uvicorn.run(
         app,
-        host="0.0.0.0",
+        host="127.0.0.1",
         port=8000,
         log_level="warning",
     )
