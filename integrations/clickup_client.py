@@ -41,12 +41,12 @@ class ClickUpClient:
             "Content-Type": "application/json",
         }
 
-    def _request(self, method: str, path: str, data: dict | None = None) -> Any:
+    def _request(self, method: str, path: str, data: dict | None = None, timeout: int = 15) -> Any:
         url = f"{BASE_URL}{path}"
         body = json.dumps(data).encode() if data else None
         req = urllib.request.Request(url, data=body, headers=self._headers(), method=method)
         try:
-            with urllib.request.urlopen(req, timeout=15, context=_ssl_context()) as resp:
+            with urllib.request.urlopen(req, timeout=timeout, context=_ssl_context()) as resp:
                 return json.loads(resp.read().decode())
         except urllib.error.HTTPError as e:
             body = e.read().decode()
@@ -97,28 +97,36 @@ class ClickUpClient:
         date_updated_gt: int | None = None,
         include_closed: bool = True,
         subtasks: bool = False,
+        max_pages: int = 5,
     ) -> list[dict]:
-        params = [
-            f"page={page}",
-            f"order_by={order_by}",
-            f"reverse={'true' if reverse else 'false'}",
-            f"include_closed={'true' if include_closed else 'false'}",
-            f"subtasks={'true' if subtasks else 'false'}",
-        ]
-        if statuses:
-            for s in statuses:
-                params.append(f"statuses[]={urllib.parse.quote(s)}")
-        if assignees:
-            for a in assignees:
-                params.append(f"assignees[]={a}")
-        if date_created_gt:
-            params.append(f"date_created_gt={date_created_gt}")
-        if date_updated_gt:
-            params.append(f"date_updated_gt={date_updated_gt}")
+        """Fetch tasks with pagination (up to max_pages)."""
+        all_tasks: list[dict] = []
+        for p in range(max_pages):
+            params = [
+                f"page={p}",
+                f"order_by={order_by}",
+                f"reverse={'true' if reverse else 'false'}",
+                f"include_closed={'true' if include_closed else 'false'}",
+                f"subtasks={'true' if subtasks else 'false'}",
+            ]
+            if statuses:
+                for s in statuses:
+                    params.append(f"statuses[]={urllib.parse.quote(s)}")
+            if assignees:
+                for a in assignees:
+                    params.append(f"assignees[]={a}")
+            if date_created_gt:
+                params.append(f"date_created_gt={date_created_gt}")
+            if date_updated_gt:
+                params.append(f"date_updated_gt={date_updated_gt}")
 
-        qs = "&".join(params)
-        data = self._request("GET", f"/list/{list_id}/task?{qs}")
-        return data.get("tasks", [])
+            qs = "&".join(params)
+            data = self._request("GET", f"/list/{list_id}/task?{qs}", timeout=30)
+            tasks = data.get("tasks", [])
+            all_tasks.extend(tasks)
+            if len(tasks) < 100:
+                break  # Last page
+        return all_tasks
 
     def get_task(self, task_id: str) -> dict:
         return self._request("GET", f"/task/{task_id}")

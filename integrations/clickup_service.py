@@ -63,8 +63,12 @@ class ClickUpService:
 
     # ── Sync ──────────────────────────────────────────────────────────
 
-    def sync_all(self) -> dict:
-        """Full sync: teams → spaces → folders → lists → tasks."""
+    def sync_all(self, days_back: int = 7) -> dict:
+        """
+        Full sync: teams → spaces → folders → lists → tasks.
+        Only fetches tasks updated in the last `days_back` days for performance.
+        """
+        import time
         client = self._ensure_client()
         init_clickup_tables()
         clear_cache()
@@ -72,6 +76,13 @@ class ClickUpService:
         teams = client.get_teams()
         upsert_teams(teams)
         total_tasks = 0
+        lists_count = 0
+
+        # Only fetch recently updated tasks
+        from datetime import timedelta
+        date_updated_gt = int((datetime.now(timezone.utc) - timedelta(days=days_back)).timestamp() * 1000)
+
+        start = time.time()
 
         for team in teams:
             tid = team["id"]
@@ -87,20 +98,37 @@ class ClickUpService:
                     lists = client.get_lists(folder["id"])
                     upsert_lists(lists, folder["id"], sid)
                     for lst in lists:
-                        tasks = client.get_tasks(lst["id"], include_closed=True)
-                        upsert_tasks(tasks)
-                        total_tasks += len(tasks)
+                        lists_count += 1
+                        tasks = client.get_tasks(
+                            lst["id"],
+                            include_closed=True,
+                            date_updated_gt=date_updated_gt,
+                            max_pages=1,
+                        )
+                        if tasks:
+                            upsert_tasks(tasks)
+                            total_tasks += len(tasks)
+                            info(f"    sync {lst['name']}: {len(tasks)} tasks")
 
                 # Folderless lists
                 folderless = client.get_folderless_lists(sid)
                 upsert_lists(folderless, None, sid)
                 for lst in folderless:
-                    tasks = client.get_tasks(lst["id"], include_closed=True)
-                    upsert_tasks(tasks)
-                    total_tasks += len(tasks)
+                    lists_count += 1
+                    tasks = client.get_tasks(
+                        lst["id"],
+                        include_closed=True,
+                        date_updated_gt=date_updated_gt,
+                        max_pages=1,
+                    )
+                    if tasks:
+                        upsert_tasks(tasks)
+                        total_tasks += len(tasks)
+                        info(f"    sync {lst['name']}: {len(tasks)} tasks")
 
-        info(f"Sync complete: {len(teams)} teams, {total_tasks} tasks")
-        return {"teams": len(teams), "tasks_synced": total_tasks}
+        elapsed = round(time.time() - start, 2)
+        info(f"Sync complete: {lists_count} lists, {total_tasks} tasks in {elapsed}s")
+        return {"teams": len(teams), "lists": lists_count, "tasks_synced": total_tasks, "elapsed": elapsed}
 
     # ── Queries ───────────────────────────────────────────────────────
 
