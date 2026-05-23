@@ -131,6 +131,51 @@ class ClickUpClient:
     def get_task(self, task_id: str) -> dict:
         return self._request("GET", f"/task/{task_id}")
 
+    # ── Users ───────────────────────────────────────────────────────────
+
+    def get_current_user(self) -> dict:
+        """Return info about the authenticated user."""
+        return self._request("GET", "/user")
+
+    def get_team_users(self, team_id: str) -> list[dict]:
+        """Return members of a team/workspace."""
+        data = self._request("GET", f"/team/{team_id}/user")
+        return data.get("members", [])
+
+    # ── Team-level Tasks (filtered by assignee) ────────────────────────
+
+    def get_my_tasks(
+        self,
+        team_id: str,
+        assignee_id: str,
+        page: int = 0,
+        include_closed: bool = True,
+        subtasks: bool = True,
+        date_updated_gt: int | None = None,
+        max_pages: int = 5,
+    ) -> list[dict]:
+        """
+        Fetch ALL tasks assigned to a specific user across the entire team.
+        Much more efficient than iterating through every list.
+        """
+        all_tasks: list[dict] = []
+        for p in range(max_pages):
+            params = [
+                f"page={p}",
+                f"assignees[]={assignee_id}",
+                f"include_closed={'true' if include_closed else 'false'}",
+                f"subtasks={'true' if subtasks else 'false'}",
+            ]
+            if date_updated_gt:
+                params.append(f"date_updated_gt={date_updated_gt}")
+            qs = "&".join(params)
+            data = self._request("GET", f"/team/{team_id}/task?{qs}", timeout=30)
+            tasks = data.get("tasks", [])
+            all_tasks.extend(tasks)
+            if len(tasks) < 100:
+                break
+        return all_tasks
+
     # ── Time Tracking ─────────────────────────────────────────────────
 
     def get_time_entries(

@@ -39,11 +39,21 @@ class ClickUpService:
         from integrations.clickup_config import save_token
         save_token(token)
         self._client = ClickUpClient(token)
+
+        # Get authenticated user info
+        user = self._client.get_current_user()
+        self._user_id = user.get("id", "")
+        info(f"Authenticated as user_id={self._user_id}")
+
         teams = self._client.get_teams()
         if not teams:
             raise ValueError("No teams found for this token")
         info(f"Connected to ClickUp: {', '.join(t['name'] for t in teams)}")
-        return {"teams": [{"id": t["id"], "name": t["name"]} for t in teams]}
+        return {
+            "user_id": self._user_id,
+            "user": user.get("username", ""),
+            "teams": [{"id": t["id"], "name": t["name"]} for t in teams],
+        }
 
     def disconnect(self) -> None:
         from integrations.clickup_config import delete_token
@@ -65,70 +75,78 @@ class ClickUpService:
 
     def sync_all(self, days_back: int = 7) -> dict:
         """
-        Full sync: teams → spaces → folders → lists → tasks.
-        Only fetches tasks updated in the last `days_back` days for performance.
+        Smart sync:
+        - Structure: teams → spaces → folders → lists (one pass)
+        - Tasks: ONLY those assigned to the authenticated user, via team-level endpoint
+        - Much faster than iterating every list
         """
         import time
         client = self._ensure_client()
         init_clickup_tables()
         clear_cache()
 
+        # Get current user ID if not already stored
+        if not self._user_id:
+            try:
+                user = client.get_current_user()
+                self._user_id = user.get("id", "")
+            except Exception:
+                pass
+
         teams = client.get_teams()
         upsert_teams(teams)
-        total_tasks = 0
-        lists_count = 0
 
-        # Only fetch recently updated tasks
         from datetime import timedelta
         date_updated_gt = int((datetime.now(timezone.utc) - timedelta(days=days_back)).timestamp() * 1000)
 
         start = time.time()
+        total_tasks = 0
+        total_lists = 0
 
         for team in teams:
             tid = team["id"]
+
+            # ── Structure (spaces → folders → lists) ────────────────
             spaces = client.get_spaces(tid)
             upsert_spaces(spaces, tid)
 
             for space in spaces:
                 sid = space["id"]
-                # Folders with lists
                 folders = client.get_folders(sid)
                 upsert_folders(folders, sid)
                 for folder in folders:
-                    lists = client.get_lists(folder["id"])
-                    upsert_lists(lists, folder["id"], sid)
-                    for lst in lists:
-                        lists_count += 1
-                        tasks = client.get_tasks(
-                            lst["id"],
-                            include_closed=True,
-                            date_updated_gt=date_updated_gt,
-                            max_pages=1,
-                        )
-                        if tasks:
-                            upsert_tasks(tasks)
-                            total_tasks += len(tasks)
-                            info(f"    sync {lst['name']}: {len(tasks)} tasks")
+                    folder_lists = client.get_lists(folder["id"])
+                    upsert_lists(folder_lists, folder["id"], sid)
+                    total_lists += len(folder_lists)
 
                 # Folderless lists
                 folderless = client.get_folderless_lists(sid)
                 upsert_lists(folderless, None, sid)
-                for lst in folderless:
-                    lists_count += 1
-                    tasks = client.get_tasks(
-                        lst["id"],
-                        include_closed=True,
-                        date_updated_gt=date_updated_gt,
-                        max_pages=1,
-                    )
-                    if tasks:
-                        upsert_tasks(tasks)
-                        total_tasks += len(tasks)
-                        info(f"    sync {lst['name']}: {len(tasks)} tasks")
+                total_lists += len(folderless)
+
+            # ── Tasks assigned to me (team-level endpoint) ──────────
+            if self._user_id:
+                my_tasks = client.get_my_tasks(
+                    team_id=tid,
+                    assignee_id=self._user_id,
+                    date_updated_gt=date_updated_gt,
+                    subtasks=True,
+                    max_pages=10,
+                )
+                if my_tasks:
+                    upsert_tasks(my_tasks)
+                    total_tasks += len(my_tasks)
+                    info(f"  Synced {len(my_tasks)} tasks assigned to you")
 
         elapsed = round(time.time() - start, 2)
-        info(f"Sync complete: {lists_count} lists, {total_tasks} tasks in {elapsed}s")
-        return {"teams": len(teams), "lists": lists_count, "tasks_synced": total_tasks, "elapsed": elapsed}
+        info(f"Sync complete: {total_lists} lists, {total_tasks} your tasks in {elapsed}s")
+        return {
+            "teams": len(teams),
+            "lists": total_lists,
+            "tasks_synced": total_tasks,
+            "filtered_by_assignee": bool(self._user_id),
+            "elapsed": elapsed,
+        }
 
     # ── Queries ───────────────────────────────────────────────────────
 
