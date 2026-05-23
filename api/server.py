@@ -17,7 +17,7 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI(
         title="Work Assistant Core",
-        version="0.4.0",
+        version="0.5.0",
         description="Local backend for monitoring, simulating and recording user activity.",
     )
 

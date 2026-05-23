@@ -9,7 +9,6 @@ import threading
 import uvicorn
 
 from core.event_bus import EventBus
-from core.activity_tracker import ActivityTracker
 from core.system_state import SystemState
 from core.event_stream import EventStream
 from core.processor import Processor
@@ -19,7 +18,7 @@ from services.logger import info
 
 
 def main() -> None:
-    info("=== Work Assistant Core v0.4 starting ===")
+    info("=== Work Assistant Core v0.5 starting ===")
 
     # Database
     init_db()
@@ -39,8 +38,9 @@ def main() -> None:
     asyncio.set_event_loop(loop)
     stream = EventStream(bus, state, loop=loop)
 
-    # Activity simulation
-    tracker = ActivityTracker(bus)
+    # ── Real activity monitoring (macOS) ─────────────────────────────
+    from core.real_activity_tracker import RealActivityTracker
+    tracker = RealActivityTracker(bus, use_simulation_fallback=True)
 
     # Processing layer
     from services.activity_service import ActivityService
@@ -63,9 +63,10 @@ def main() -> None:
     hb_thread = threading.Thread(target=run_async_loop, daemon=True)
     hb_thread.start()
 
-    info("Work Assistant Core v0.4 running on http://127.0.0.1:8000")
+    info("Work Assistant Core v0.5 running on http://127.0.0.1:8000")
     info("WebSocket endpoint: ws://127.0.0.1:8000/ws/state")
-    info("ClickUp integration ready (set token at POST /integrations/clickup/connect)")
+    info("ClickUp integration ready")
+    info("Real activity monitoring active (macOS)")
 
     uvicorn.run(
         app,
