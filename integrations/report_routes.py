@@ -1,5 +1,5 @@
 """
-Daily Log routes — API endpoints for daily work logging and report generation.
+Daily Log routes — API endpoints for daily work logging linked to ClickUp.
 """
 
 from datetime import date, timezone
@@ -15,6 +15,7 @@ from integrations.daily_log import (
     delete_log_entry,
     generate_report,
 )
+from integrations.clickup_db import get_cached_tasks
 
 router = APIRouter(prefix="/report", tags=["report"])
 
@@ -22,13 +23,19 @@ router = APIRouter(prefix="/report", tags=["report"])
 # ── Request models ────────────────────────────────────────────────────
 
 
-class LogEntryRequest(BaseModel):
-    project_name: str
-    list_name: str
-    task_name: str
-    task_id: str = ""
+class SubtaskEntry(BaseModel):
+    name: str
     progress: int = 0
-    notes: str = ""
+
+
+class LogEntryRequest(BaseModel):
+    clickup_task_id: str = ""
+    project_name: str = ""
+    list_name: str = ""
+    task_name: str = ""
+    progress: int = 0
+    description: str = ""
+    subtasks: list[SubtaskEntry] = []
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────
@@ -36,16 +43,33 @@ class LogEntryRequest(BaseModel):
 
 @router.post("/log")
 async def create_log_entry(entry: LogEntryRequest):
-    """Add a new daily log entry."""
+    """Add a daily log entry, optionally linked to a ClickUp task."""
+
+    # If clickup_task_id is provided, auto-fill task data from cache
+    if entry.clickup_task_id and not entry.task_name:
+        tasks = get_cached_tasks(limit=500)
+        matched = [t for t in tasks if t["id"] == entry.clickup_task_id]
+        if matched:
+            t = matched[0]
+            entry.project_name = entry.project_name or t.get("project_name", "")
+            entry.list_name = entry.list_name or ""
+            entry.task_name = entry.task_name or t.get("name", "")
+
+    if not entry.task_name:
+        raise HTTPException(400, "task_name is required (or provide a valid clickup_task_id)")
+
     today = date.today().isoformat()
+    subtasks_data = [{"name": s.name, "progress": s.progress} for s in entry.subtasks]
+
     entry_id = add_log_entry(
         date=today,
+        clickup_task_id=entry.clickup_task_id,
         project_name=entry.project_name,
         list_name=entry.list_name,
         task_name=entry.task_name,
-        task_id=entry.task_id,
         progress=entry.progress,
-        notes=entry.notes,
+        description=entry.description,
+        subtasks=subtasks_data if subtasks_data else None,
     )
     return {"id": entry_id, "message": "Log entry added", "date": today}
 
@@ -55,7 +79,7 @@ async def get_logs(
     date_str: str | None = Query(None, alias="date"),
     limit: int = 50,
 ):
-    """Get log entries for a specific date or recent ones."""
+    """Get log entries."""
     if date_str:
         logs = get_logs_by_date(date_str)
     else:
@@ -73,7 +97,7 @@ async def delete_entry(entry_id: int):
 
 @router.get("/daily")
 async def get_daily_report(date_str: str | None = Query(None, alias="date")):
-    """Generate the formatted daily report."""
+    """Generate formatted daily report in ClickUp format."""
     today = date.today().isoformat()
     report_date = date_str or today
     report = generate_report(report_date)
