@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from api.routes import router as main_router
 from integrations.clickup_routes import router as clickup_router
 from integrations.report_routes import router as report_router
+from integrations.auto_report_routes import router as auto_report_router
 from integrations.clickup_service import ClickUpService
 from core.system_state import SystemState
 from core.event_stream import EventStream
@@ -36,4 +37,5 @@ def create_app(
     app.include_router(main_router)
     app.include_router(clickup_router)
     app.include_router(report_router)
+    app.include_router(auto_report_router)
     return app

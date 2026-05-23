@@ -18,7 +18,7 @@ from services.logger import info
 
 
 def main() -> None:
-    info("=== Work Assistant Core v0.5 starting ===")
+    info("=== Work Assistant Core v0.9 starting ===")
 
     # Database
     init_db()
@@ -52,11 +52,31 @@ def main() -> None:
     activity_service = ActivityService()
     processor = Processor(bus, activity_service, state, stream)
 
+    # ── Task Tracker (auto-detect ClickUp status changes) ────────────
+    from integrations.task_tracker import TaskTracker
+    task_tracker = TaskTracker(poll_interval=60)
+
+    # ── Git Detector ──────────────────────────────────────────────────
+    from integrations.git_detector import GitDetector
+    git_detector = GitDetector()
+
+    # ── Auto Report (generates at 4pm) ────────────────────────────────
+    from integrations.auto_report import AutoReport
+    auto_report = AutoReport(task_tracker=task_tracker)
+
     # ── Start internal subsystems ─────────────────────────────────────
     processor.start()
     tracker.start()
+    task_tracker.start()
+    auto_report.start()
 
-    # ── FastAPI with streaming layer ──────────────────────────────────
+    # ── FastAPI ──────────────────────────────────────────────────────
+    # Inject services into routes
+    import integrations.auto_report_routes as ar_routes
+    ar_routes.auto_report = auto_report
+    ar_routes.task_tracker = task_tracker
+    ar_routes.git_detector = git_detector
+
     app = create_app(state=state, stream=stream)
 
     # ── Start heartbeat loop on the same event loop ───────────────────
@@ -67,14 +87,16 @@ def main() -> None:
     hb_thread = threading.Thread(target=run_async_loop, daemon=True)
     hb_thread.start()
 
-    info("Work Assistant Core v0.5 running on http://127.0.0.1:8000")
+    info("Work Assistant Core v0.9 running on http://127.0.0.1:8000")
     info("WebSocket endpoint: ws://127.0.0.1:8000/ws/state")
     info("ClickUp integration ready")
     info("Real activity monitoring active (macOS)")
+    info("Task Tracker active (polling ClickUp every 60s)")
+    info("Auto Report will generate at 4:00 PM")
 
     uvicorn.run(
         app,
-        host="127.0.0.1",
+        host="0.0.0.0",
         port=8000,
         log_level="warning",
     )
