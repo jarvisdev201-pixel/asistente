@@ -27,6 +27,10 @@ def main() -> None:
     from integrations.clickup_db import init_clickup_tables
     init_clickup_tables()
 
+    # Daily log tables
+    from integrations.daily_log import init_daily_log_tables
+    init_daily_log_tables()
+
     # Event system
     bus = EventBus()
 
