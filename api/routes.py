@@ -4,16 +4,28 @@ FastAPI routes for the Work Assistant API.
 
 from fastapi import APIRouter
 from services.activity_service import ActivityService
+from core.system_state import SystemState
 
 router = APIRouter()
 service = ActivityService()
 
-SYSTEM_STATE = {"status": "active"}
+# Will be injected by main.py
+system_state: SystemState | None = None
+
+SYSTEM_STATUS = {"status": "active"}
 
 
 @router.get("/")
 async def system_status():
-    return {"system": "Work Assistant Core", **SYSTEM_STATE}
+    return {"system": "Work Assistant Core", **SYSTEM_STATUS}
+
+
+@router.get("/state")
+async def get_live_state():
+    """Return the live in-memory system state."""
+    if system_state is None:
+        return {"error": "System state not initialized"}
+    return system_state.get_state()
 
 
 @router.get("/activities")
