@@ -18,7 +18,7 @@ from services.logger import info
 
 
 def main() -> None:
-    info("=== Work Assistant Core v0.9 starting ===")
+    info("=== Work Assistant Core v1.0 starting ===")
 
     # Database
     init_db()
@@ -30,6 +30,10 @@ def main() -> None:
     # Daily log tables
     from integrations.daily_log import init_daily_log_tables
     init_daily_log_tables()
+
+    # Time tracking tables
+    from integrations.time_tracker import init_time_tracking_tables
+    init_time_tracking_tables()
 
     # Event system
     bus = EventBus()
@@ -52,9 +56,13 @@ def main() -> None:
     activity_service = ActivityService()
     processor = Processor(bus, activity_service, state, stream)
 
+    # ── Time Tracker (measure actual time per task) ──────────────────
+    from integrations.time_tracker import TimeTracker
+    time_tracker = TimeTracker()
+
     # ── Task Tracker (auto-detect ClickUp status changes) ────────────
     from integrations.task_tracker import TaskTracker
-    task_tracker = TaskTracker(poll_interval=60)
+    task_tracker = TaskTracker(poll_interval=60, time_tracker=time_tracker)
 
     # ── Git Detector ──────────────────────────────────────────────────
     from integrations.git_detector import GitDetector
@@ -76,6 +84,11 @@ def main() -> None:
     ar_routes.auto_report = auto_report
     ar_routes.task_tracker = task_tracker
     ar_routes.git_detector = git_detector
+    ar_routes.time_tracker = time_tracker
+
+    # Inject into webhook routes
+    import integrations.clickup_webhooks as cw_routes
+    cw_routes.task_tracker = task_tracker
 
     app = create_app(state=state, stream=stream)
 
@@ -87,11 +100,12 @@ def main() -> None:
     hb_thread = threading.Thread(target=run_async_loop, daemon=True)
     hb_thread.start()
 
-    info("Work Assistant Core v0.9 running on http://127.0.0.1:8000")
+    info("Work Assistant Core v1.0 running on http://127.0.0.1:8000")
     info("WebSocket endpoint: ws://127.0.0.1:8000/ws/state")
     info("ClickUp integration ready")
     info("Real activity monitoring active (macOS)")
     info("Task Tracker active (polling ClickUp every 60s)")
+    info("Time Tracker active (measuring hours per task)")
     info("Auto Report will generate at 4:00 PM")
 
     uvicorn.run(

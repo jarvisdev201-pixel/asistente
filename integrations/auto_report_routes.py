@@ -12,6 +12,7 @@ router = APIRouter(prefix="/report", tags=["report"])
 auto_report = None
 task_tracker = None
 git_detector = None
+time_tracker = None
 
 
 @router.post("/generate")
@@ -63,3 +64,17 @@ async def get_git_activity():
         return {"repos": activity}
     except Exception as e:
         raise HTTPException(500, f"Git scan failed: {e}")
+
+
+@router.get("/time-tracking")
+async def get_time_tracking():
+    """Get time tracking data for today."""
+    if time_tracker is None:
+        return {"entries": [], "projects": {}}
+    return {
+        "current_task_id": time_tracker.get_current_task_id(),
+        "is_tracking": time_tracker.is_tracking(),
+        "current_duration": time_tracker.get_current_duration(),
+        "entries": time_tracker.get_today_entries(),
+        "project_summary": time_tracker.get_project_time_summary(),
+    }

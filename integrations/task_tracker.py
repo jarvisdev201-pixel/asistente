@@ -26,13 +26,14 @@ class TaskTracker:
     and auto-registers daily log entries.
     """
 
-    def __init__(self, poll_interval: int = 60) -> None:
+    def __init__(self, poll_interval: int = 60, time_tracker=None) -> None:
         self._client: ClickUpClient | None = None
         self._user_id: str | None = None
         self._team_id: str | None = None
         self._poll_interval = poll_interval
         self._running = False
         self._thread = None
+        self._time_tracker = time_tracker
 
         # Track last known states per task ID
         self._last_states: dict[str, str] = {}
@@ -130,6 +131,42 @@ class TaskTracker:
 
     # ── Event handlers ────────────────────────────────────────────────
 
+    def _compute_progress(self, task: dict) -> int:
+        """
+        Compute progress percentage based on:
+        - Checklists completed vs total
+        - Subtask statuses
+        - Default: 50% for active, 100% for completed
+        """
+        status_obj = task.get("status", {}) or {}
+        status = (status_obj.get("status", "") or "").lower()
+
+        if status in COMPLETED_STATUSES:
+            return 100
+
+        # Check checklists
+        checklists = task.get("checklists", []) or []
+        total_items = 0
+        done_items = 0
+        for cl in checklists:
+            items = cl.get("items", []) or []
+            for item in items:
+                total_items += 1
+                if item.get("resolved", False):
+                    done_items += 1
+
+        if total_items > 0:
+            return int((done_items / total_items) * 100)
+
+        # Check subtasks
+        subtasks = task.get("subtasks", []) or []
+        if subtasks:
+            done = sum(1 for s in subtasks if (s.get("status", {}) or {}).get("status", "").lower() in COMPLETED_STATUSES)
+            return int((done / len(subtasks)) * 100)
+
+        # Default
+        return 50 if status in ACTIVE_STATUSES else 0
+
     def _on_status_change(
         self,
         task_id: str,
@@ -141,16 +178,25 @@ class TaskTracker:
         info(f"Task status changed: {task_name} ({old_status} → {new_status})")
 
         today = datetime.now(timezone.utc).date().isoformat()
-        project = task.get("project", {})
-        project_name = project.get("name", "") if project else ""
-        list_obj = task.get("list", {})
-        list_name = list_obj.get("name", "") if list_obj else ""
+        project = task.get("project", {}) or {}
+        project_name = project.get("name", "") if isinstance(project, dict) else ""
+        list_obj = task.get("list", {}) or {}
+        list_name = list_obj.get("name", "") if isinstance(list_obj, dict) else ""
         parent = task.get("parent")
         is_subtask = parent is not None
 
         # If became active (in progress / doing)
         if new_status in ACTIVE_STATUSES and old_status not in ACTIVE_STATUSES:
-            notes = f"Started working on this task (status: {new_status})"
+            # Start time tracking
+            if self._time_tracker:
+                self._time_tracker.start_task(
+                    task_id=task_id,
+                    task_name=task_name,
+                    project_name=project_name,
+                    list_name=list_name,
+                )
+
+            notes = f"Started working (status: {new_status})"
             add_log_entry(
                 date=today,
                 clickup_task_id=task_id,
@@ -164,17 +210,34 @@ class TaskTracker:
 
         # If became completed (revision / done)
         if new_status in COMPLETED_STATUSES:
-            # Build progress from description + checklist
-            progress = 100
+            # Stop time tracking
+            if self._time_tracker:
+                self._time_tracker.stop_task()
+
+            # Get total time spent
+            time_spent = ""
+            if self._time_tracker:
+                total_secs = self._time_tracker.get_task_total_time(task_id)
+                mins = int(total_secs // 60)
+                hrs = mins // 60
+                if hrs > 0:
+                    time_spent = f"⏱️ {hrs}h {mins % 60}m"
+                else:
+                    time_spent = f"⏱️ {mins}m"
+
+            # Compute progress from checklists + subtasks
+            progress = self._compute_progress(task)
+
             description_text = task.get("description", "") or ""
-            checklist_summary = self._summarize_checklists(task.get("checklists", []))
-            sub_info = f" (subtask)" if is_subtask else ""
+            checklist_summary = self._summarize_checklists(task.get("checklists", []) or [])
 
             notes_parts = []
+            if time_spent:
+                notes_parts.append(time_spent)
             if description_text:
                 notes_parts.append(description_text[:500])
             if checklist_summary:
-                notes_parts.append(f"Checklist: {checklist_summary}")
+                notes_parts.append(checklist_summary)
             if not notes_parts:
                 notes_parts.append(f"Task marked as {new_status}")
 
