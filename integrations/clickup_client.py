@@ -3,10 +3,24 @@ ClickUp API client — raw HTTP wrapper for ClickUp API v2.
 """
 
 import json
+import os
+import ssl
 import urllib.parse
 import urllib.request
 import urllib.error
 from typing import Any
+
+
+# macOS fix: create an SSL context that uses certifi when available
+# This avoids CERTIFICATE_VERIFY_FAILED on systems with broken cert bundles
+def _ssl_context() -> ssl.SSLContext:
+    ctx = ssl.create_default_context()
+    try:
+        import certifi
+        ctx.load_verify_locations(certifi.where())
+    except ImportError:
+        pass
+    return ctx
 
 from services.logger import info, error, warning
 
@@ -32,7 +46,7 @@ class ClickUpClient:
         body = json.dumps(data).encode() if data else None
         req = urllib.request.Request(url, data=body, headers=self._headers(), method=method)
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=15, context=_ssl_context()) as resp:
                 return json.loads(resp.read().decode())
         except urllib.error.HTTPError as e:
             body = e.read().decode()
