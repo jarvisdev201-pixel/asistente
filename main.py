@@ -19,10 +19,14 @@ from services.logger import info
 
 
 def main() -> None:
-    info("=== Work Assistant Core v0.3 starting ===")
+    info("=== Work Assistant Core v0.4 starting ===")
 
     # Database
     init_db()
+
+    # ClickUp cache tables
+    from integrations.clickup_db import init_clickup_tables
+    init_clickup_tables()
 
     # Event system
     bus = EventBus()
@@ -59,8 +63,9 @@ def main() -> None:
     hb_thread = threading.Thread(target=run_async_loop, daemon=True)
     hb_thread.start()
 
-    info("Work Assistant Core v0.3 running on http://127.0.0.1:8000")
+    info("Work Assistant Core v0.4 running on http://127.0.0.1:8000")
     info("WebSocket endpoint: ws://127.0.0.1:8000/ws/state")
+    info("ClickUp integration ready (set token at POST /integrations/clickup/connect)")
 
     uvicorn.run(
         app,
